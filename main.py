@@ -10,6 +10,8 @@ from langchain import hub
 from langchain_community.chat_models import ChatTongyi
 from langchain_community.agent_toolkits.playwright.toolkit import PlayWrightBrowserToolkit
 from langchain_community.tools.playwright.utils import create_async_playwright_browser
+from langchain_tavily import TavilySearch
+from langchain_experimental.tools import PythonREPLTool
 
 from playwright.async_api import async_playwright
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError, Error as PlaywrightError
@@ -36,8 +38,10 @@ async def create_plan_and_execute_agent(browser):
         model_name="qwen-turbo-latest",
     )
     # 工具
-    toolkit = PlayWrightBrowserToolkit.from_browser(async_browser=browser)
-    tools = toolkit.get_tools() + [get_current_date, input_tool]
+    tools = [get_current_date, input_tool]
+    tools = tools + PlayWrightBrowserToolkit.from_browser(async_browser=browser).get_tools() # 浏览器
+    tools.append(TavilySearch()) # 搜索api
+    tools.append(PythonREPLTool()) # Python代码执行器
     executor = load_agent_executor(executor_llm, tools, verbose=True)
 
     return PlanAndExecute(planner=planner, executor=executor, verbose=True)
