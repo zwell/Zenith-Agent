@@ -7,9 +7,10 @@ from langchain import hub
 from tools import get_current_date, input_tool
 from tool_browser import browser_search
 from langchain_community.chat_models import ChatTongyi
+from langchain_community.agent_toolkits.playwright.toolkit import PlayWrightBrowserToolkit
+from langchain_community.tools.playwright.utils import create_async_playwright_browser
 
-
-def create_plan_and_execute_agent():
+async def create_plan_and_execute_agent():
     """创建PlanAndExecute Agent"""
 
     # 创建规划器 (Planner)
@@ -28,9 +29,11 @@ def create_plan_and_execute_agent():
     executor_llm = ChatTongyi(
         model="qwen-turbo-latest",
         temperature=0,
-        dashscope_api_key=os.getenv("ALI_API_KEY"),
     )
-    tools = [get_current_date, input_tool, browser_search]
+    # 浏览器实例
+    browser = await create_async_playwright_browser(headless=False)
+    toolkit = PlayWrightBrowserToolkit.from_browser(async_browser=browser)
+    tools = toolkit.get_tools() + [get_current_date, input_tool]
     executor = load_agent_executor(executor_llm, tools, verbose=True)
 
     # 创建PlanAndExecute Agent
@@ -47,7 +50,7 @@ def main():
     agent = create_plan_and_execute_agent()
 
     # 定义任务
-    task = """我下周二要去一趟上海，游玩三天。帮我查一下来回的车票，选择性价比最高的三个；然后查一下那几天的天气，结合当地的景点给我一个游玩计划。"""
+    task = """我下周二要从合肥去一趟上海，游玩三天。帮我查一下来回的车票，选择性价比最高的三个；然后查一下那几天的天气，结合当地的景点给我一个游玩计划。"""
 
     try:
         # 执行任务

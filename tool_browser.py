@@ -3,15 +3,13 @@ from langchain.tools import tool
 import dashscope
 import os
 
-class BrowserTool:
-    def __init__(self, api_key: str):
-        self.api_key = api_key
 
+class BrowserTool:
     def _get_search_keyword(self, instruction: str) -> str:
         """调用 LLM 提取用户想搜索的关键词"""
         prompt = f"从这句话中提取用户想搜索的关键词：'{instruction}'。只返回关键词，其他不要输出。"
 
-        dashscope.api_key = os.getenv("ALI_API_KEY")
+        # dashscope.api_key = os.getenv("ALI_API_KEY")
         response = dashscope.Generation.call(
             model='qwen-turbo-latest', 
             prompt=prompt,
@@ -43,11 +41,10 @@ class BrowserTool:
             page.wait_for_timeout(5000)
             browser.close()
 
-
-
 @tool
 def browser_search(text: str) -> str:
     """根据用户提供的查询内容，在网页中搜索相关信息并返回结果摘要。
     适合用于 LLM 不确定答案、需要查找最新资讯或需要浏览网页内容的场景。"""
-    tool = BrowserTool(api_key="sk-xxxxxx")
-    return tool.run(text)
+    # tool = BrowserTool()
+    # return tool.run(text)
+    return "搜索结果"
