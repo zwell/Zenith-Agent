@@ -18,10 +18,9 @@ from tools import get_current_date, input_tool
 from tool_browser import browser_search
 
 async def create_plan_and_execute_agent(browser):
-    """创建PlanAndExecute Agent"""
 
-    # 创建规划器 (Planner)
-    plan_llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0)
+    # 规划器
+    plan_llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0)
     planner_prompt = (
         "请先理解任务内容，并制定解决该任务的计划。"
         " 请以“计划：”为标题输出，"
@@ -32,26 +31,20 @@ async def create_plan_and_execute_agent(browser):
     )
     planner = load_chat_planner(plan_llm, system_prompt=planner_prompt)
 
-    # 创建执行器 (Executor)
+    # 执行器
     executor_llm = ChatTongyi(
-        model="qwen-turbo-latest",
-        temperature=0,
+        model_name="qwen-turbo-latest",
     )
-    # 浏览器实例
+    # 工具
     toolkit = PlayWrightBrowserToolkit.from_browser(async_browser=browser)
     tools = toolkit.get_tools() + [get_current_date, input_tool]
     executor = load_agent_executor(executor_llm, tools, verbose=True)
 
-    # 创建PlanAndExecute Agent
-    agent = PlanAndExecute(planner=planner, executor=executor, verbose=True)
-
-    return agent
+    return PlanAndExecute(planner=planner, executor=executor, verbose=True)
 
 
-async def main():
-    """主函数"""
-    print("=== LangChain PlanAndExecute Agent Demo ===")
-
+async def main(task: str):
+    # 浏览器异步执行
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=False)
         
@@ -59,34 +52,19 @@ async def main():
             # 创建Agent
             agent = await create_plan_and_execute_agent(browser)
 
-            # 定义任务
-            #  task = """我下周二要从合肥去一趟上海，游玩三天。帮我查一下那几天的天气，结合当地的景点给我一个游玩计划。"""
-            task = """给一个上海三天的旅游计划"""
-
-            # 执行任务
-            print(f"\n开始执行任务...")
-            print(f"任务描述: {task}")
-            print("\n" + "=" * 50)
+            print(f"开始执行任务: {task}")
 
             result = await agent.ainvoke({"input": task})
 
-            print("\n" + "=" * 50)
-            print("任务执行完成!")
-            print(f"Agent输出: {result}")
+            print(f"任务执行完成: {result}")
 
         except PlaywrightTimeoutError:
             # 返回明确的超时错误类型
-            return json.dumps({
-                "status": "timeout_error",
-                "details": "The page took too long to load and timed out. The website might be slow or blocking traffic."
-            })
+            print("timeout_error")
 
         except PlaywrightError as e:
             # 返回明确的网络/浏览器错误类型
-            return json.dumps({
-                "status": "network_error",
-                "details": f"A browser-level network error occurred: {e.message}. The website might be offline or unreachable."
-            })
+            print("network_error")
 
         except Exception as e:
             print(f"\n❌ 执行过程中发生错误: {e}")
@@ -99,10 +77,9 @@ async def main():
                 await browser.close()
             print("浏览器已关闭。")
 
-
 if __name__ == "__main__":
-    # <<< 修改点 4: 使用 asyncio.run() 来启动异步主函数
     try:
-        asyncio.run(main())
+        task_input = input("请输入你的任务：")
+        asyncio.run(main(task_input))
     except KeyboardInterrupt:
         print("\n程序被用户中断。")
