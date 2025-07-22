@@ -1,16 +1,21 @@
 import os
+import asyncio
+
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 from langchain_experimental.plan_and_execute import PlanAndExecute, load_agent_executor, load_chat_planner
 from langchain.agents import AgentExecutor, create_openai_tools_agent
 from langchain import hub
-from tools import get_current_date, input_tool
-from tool_browser import browser_search
 from langchain_community.chat_models import ChatTongyi
 from langchain_community.agent_toolkits.playwright.toolkit import PlayWrightBrowserToolkit
 from langchain_community.tools.playwright.utils import create_async_playwright_browser
 
-async def create_plan_and_execute_agent():
+from playwright.async_api import async_playwright
+
+from tools import get_current_date, input_tool
+from tool_browser import browser_search
+
+async def create_plan_and_execute_agent(browser):
     """创建PlanAndExecute Agent"""
 
     # 创建规划器 (Planner)
@@ -31,7 +36,6 @@ async def create_plan_and_execute_agent():
         temperature=0,
     )
     # 浏览器实例
-    browser = await create_async_playwright_browser(headless=False)
     toolkit = PlayWrightBrowserToolkit.from_browser(async_browser=browser)
     tools = toolkit.get_tools() + [get_current_date, input_tool]
     executor = load_agent_executor(executor_llm, tools, verbose=True)
@@ -42,43 +46,46 @@ async def create_plan_and_execute_agent():
     return agent
 
 
-def main():
+async def main():
     """主函数"""
     print("=== LangChain PlanAndExecute Agent Demo ===")
 
-    # 创建Agent
-    agent = create_plan_and_execute_agent()
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=False)
+        
+        try:
+            # 创建Agent
+            agent = await create_plan_and_execute_agent(browser)
 
-    # 定义任务
-    task = """我下周二要从合肥去一趟上海，游玩三天。帮我查一下来回的车票，选择性价比最高的三个；然后查一下那几天的天气，结合当地的景点给我一个游玩计划。"""
+            # 定义任务
+            task = """我下周二要从合肥去一趟上海，游玩三天。帮我查一下那几天的天气，结合当地的景点给我一个游玩计划。"""
 
-    try:
-        # 执行任务
-        print(f"\n开始执行任务...")
-        print(f"任务描述: {task}")
-        print("\n" + "=" * 50)
+            # 执行任务
+            print(f"\n开始执行任务...")
+            print(f"任务描述: {task}")
+            print("\n" + "=" * 50)
 
-        result = agent.invoke({"input": task})
+            result = await agent.ainvoke({"input": task})
 
-        print("\n" + "=" * 50)
-        print("任务执行完成!")
-        print(f"Agent输出: {result}")
+            print("\n" + "=" * 50)
+            print("任务执行完成!")
+            print(f"Agent输出: {result}")
 
-        # 检查文件是否生成
-        if os.path.exists('stock_comparison.txt'):
-            print("\n✅ stock_comparison.txt 文件已生成")
-            with open('stock_comparison.txt', 'r') as f:
-                content = f.read()
-                print(f"文件内容:\n{content}")
-        else:
-            print("\n❌ stock_comparison.txt 文件未生成")
+        except Exception as e:
+            print(f"\n❌ 执行过程中发生错误: {e}")
+            import traceback
+            traceback.print_exc()
 
-    except Exception as e:
-        print(f"\n❌ 执行过程中发生错误: {e}")
-        import traceback
-        traceback.print_exc()
+        finally:
+            print("\n正在关闭浏览器...")
+            if browser and browser.is_connected():
+                await browser.close()
+            print("浏览器已关闭。")
 
 
 if __name__ == "__main__":
-    main()
-
+    # <<< 修改点 4: 使用 asyncio.run() 来启动异步主函数
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\n程序被用户中断。")
