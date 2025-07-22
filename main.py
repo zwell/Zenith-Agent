@@ -1,5 +1,6 @@
 import os
 import asyncio
+import json
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
@@ -11,6 +12,7 @@ from langchain_community.agent_toolkits.playwright.toolkit import PlayWrightBrow
 from langchain_community.tools.playwright.utils import create_async_playwright_browser
 
 from playwright.async_api import async_playwright
+from playwright.async_api import TimeoutError as PlaywrightTimeoutError, Error as PlaywrightError
 
 from tools import get_current_date, input_tool
 from tool_browser import browser_search
@@ -58,7 +60,8 @@ async def main():
             agent = await create_plan_and_execute_agent(browser)
 
             # 定义任务
-            task = """我下周二要从合肥去一趟上海，游玩三天。帮我查一下那几天的天气，结合当地的景点给我一个游玩计划。"""
+            #  task = """我下周二要从合肥去一趟上海，游玩三天。帮我查一下那几天的天气，结合当地的景点给我一个游玩计划。"""
+            task = """给一个上海三天的旅游计划"""
 
             # 执行任务
             print(f"\n开始执行任务...")
@@ -70,6 +73,20 @@ async def main():
             print("\n" + "=" * 50)
             print("任务执行完成!")
             print(f"Agent输出: {result}")
+
+        except PlaywrightTimeoutError:
+            # 返回明确的超时错误类型
+            return json.dumps({
+                "status": "timeout_error",
+                "details": "The page took too long to load and timed out. The website might be slow or blocking traffic."
+            })
+
+        except PlaywrightError as e:
+            # 返回明确的网络/浏览器错误类型
+            return json.dumps({
+                "status": "network_error",
+                "details": f"A browser-level network error occurred: {e.message}. The website might be offline or unreachable."
+            })
 
         except Exception as e:
             print(f"\n❌ 执行过程中发生错误: {e}")
