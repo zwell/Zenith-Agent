@@ -12,7 +12,7 @@ async def run_task(task: str):
     初始化环境并执行单个任务。
     """
     # 异步上下文管理器，确保资源被正确释放
-    async with async_playwright() as p, AsyncSandbox.create(api_key=settings.E2B_API_KEY) as sandbox:
+    async with async_playwright() as p, await AsyncSandbox.create(api_key=settings.E2B_API_KEY) as sandbox:
         browser = None
         try:
             browser = await p.chromium.launch(headless=settings.BROWSER_HEADLESS)
