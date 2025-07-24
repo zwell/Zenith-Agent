@@ -10,3 +10,5 @@ e2b
 python-dotenv
 PyYAML
 tenacity
+fastapi
+uvicorn
