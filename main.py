@@ -16,10 +16,13 @@ from langchain_experimental.tools import PythonREPLTool
 from playwright.async_api import async_playwright
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError, Error as PlaywrightError
 
+from e2b import AsyncSandbox
+
 from tools import get_current_date, input_tool
 from tool_browser import browser_search
+from tool_sanbox import SandboxToolManager
 
-async def create_plan_and_execute_agent(browser):
+async def create_plan_and_execute_agent(browser, sandbox):
 
     # 规划器
     plan_llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0)
@@ -41,7 +44,9 @@ async def create_plan_and_execute_agent(browser):
     tools = [get_current_date, input_tool]
     tools = tools + PlayWrightBrowserToolkit.from_browser(async_browser=browser).get_tools() # 浏览器
     tools.append(TavilySearch()) # 搜索api
-    tools.append(PythonREPLTool()) # Python代码执行器
+    # E2B沙箱工具
+    sandbox_tool_manager = SandboxToolManager(sandbox)
+    tools = tools + sandbox_tool_manager.get_all_tools()
     executor = load_agent_executor(executor_llm, tools, verbose=True)
 
     return PlanAndExecute(planner=planner, executor=executor, verbose=True)
@@ -49,12 +54,12 @@ async def create_plan_and_execute_agent(browser):
 
 async def main(task: str):
     # 浏览器异步执行
-    async with async_playwright() as p:
+    async with async_playwright() as p, await AsyncSandbox.create() as sandbox:
         browser = await p.chromium.launch(headless=False)
         
         try:
             # 创建Agent
-            agent = await create_plan_and_execute_agent(browser)
+            agent = await create_plan_and_execute_agent(browser, sandbox)
 
             print(f"开始执行任务: {task}")
 
