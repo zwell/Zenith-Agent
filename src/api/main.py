@@ -1,16 +1,18 @@
-import uuid
 import logging
 import logging.config
 import yaml
 import asyncio
 import sys
-from fastapi import FastAPI, BackgroundTasks, HTTPException
-from typing import Dict
+import json
+from fastapi import FastAPI, Request
+from sse_starlette import EventSourceResponse
 
 # 检查是否在Windows上，并设置正确的asyncio事件循环策略
-# 这段代码必须在任何asyncio相关的库（如FastAPI, uvicorn, playwright）被导入和使用之前执行
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+# 退出信号
+shutdown_event = asyncio.Event()
 
 # 确保在API启动时加载日志配置
 try:
@@ -32,46 +34,62 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# ---- 简单的内存数据库来存储任务状态 ----
-# 警告: 这只适用于演示！在生产环境中，你应该使用Redis, PostgreSQL等真实数据库。
-tasks_db: Dict[str, Dict] = {}
-# ----------------------------------------
+def handle_shutdown_signal(sig, frame):
+    """信号处理函数，设置退出事件"""
+    logger.info("Received shutdown signal. Attempting graceful shutdown...")
+    shutdown_event.set()
 
-async def background_task_wrapper(task_id: str, user_task: str):
-    """
-    包装器函数，在后台运行agent任务并更新任务数据库。
-    """
-    logger.info(f"Background task {task_id} started.")
-    result = await run_agent_task(user_task)
-    tasks_db[task_id] = result
-    logger.info(f"Background task {task_id} finished. Status: {result['status']}")
-
-@app.post("/tasks", response_model=TaskCreationResponse, status_code=202)
-async def create_task(request: TaskRequest, background_tasks: BackgroundTasks):
-    """
-    创建一个新的自动化任务。
-    API会立即返回一个任务ID，并在后台开始执行任务。
-    """
-    task_id = str(uuid.uuid4())
-    tasks_db[task_id] = {"status": "running"}
+@app.on_event("startup")
+async def startup_event():
+    """应用启动时，设置信号处理器"""
+    # 在非Windows系统上，标准信号处理更可靠
+    if sys.platform != "win32":
+        signal.signal(signal.SIGINT, handle_shutdown_signal)
+        signal.signal(signal.SIGTERM, handle_shutdown_signal)
     
-    background_tasks.add_task(background_task_wrapper, task_id, request.task)
-    
-    logger.info(f"Task {task_id} created for prompt: '{request.task}'")
-    return {"task_id": task_id, "message": "Task accepted and is running in the background."}
+    logger.info("Application startup complete. Press Ctrl+C to exit.")
 
-@app.get("/tasks/{task_id}", response_model=TaskStatusResponse)
-async def get_task_status(task_id: str):
+@app.post("/tasks") # 不再需要 response_model 和 status_code
+async def execute_task(request: TaskRequest, fastapi_req: Request):
     """
-    根据任务ID查询任务的状态和结果。
+    执行一个自动化任务。
+    - mode='sync' (或留空): 同步执行任务，等待完成后一次性返回最终结果。
+    - mode='stream': 保持连接，通过Server-Sent Events流式返回进度。
     """
-    task = tasks_db.get(task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
+    mode = request.mode
     
-    response = {"task_id": task_id, **task}
-    return response
+    # 兼容旧的 'async' 模式名，统一为 'sync' 行为
+    if mode == "async":
+        mode = "sync"
+        
+    if mode == "sync":
+        # 同步模式：直接调用、等待、返回结果
+        logger.info(f"Executing task in 'sync' mode for: '{request.task}'")
+        # 传递 shutdown_event 以支持 Ctrl+C
+        result_data = await run_agent_task(request.task, shutdown_event=shutdown_event)
+        return result_data
 
-@app.get("/")
-def read_root():
-    return {"message": "Welcome to the Web Automation Agent API. Go to /docs to see the API documentation."}
+    elif mode == "stream":
+        # 流式模式：逻辑和之前基本一样
+        logger.info(f"Executing task in 'stream' mode for: '{request.task}'")
+        
+        async def stream_generator():
+            async def send_event(event_name: str, data: Any):
+                if await fastapi_req.is_disconnected() or shutdown_event.is_set():
+                    logger.warning("Client disconnected or shutdown signal received, stopping stream.")
+                    # 抛出一个异常来中断生成器
+                    raise asyncio.CancelledError("Client disconnected or shutdown.")
+                
+                if not isinstance(data, str):
+                    data = json.dumps(data, ensure_ascii=False) # ensure_ascii=False 对中文友好
+                
+                yield {"event": event_name, "data": data}
+
+            try:
+                # 传递 shutdown_event
+                await run_agent_task(request.task, stream_callback=send_event, shutdown_event=shutdown_event)
+                yield {"event": "end", "data": "Stream finished."}
+            except asyncio.CancelledError:
+                yield {"event": "error", "data": "Task cancelled by server or client."}
+
+        return EventSourceResponse(stream_generator())

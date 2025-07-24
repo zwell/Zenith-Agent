@@ -12,3 +12,4 @@ PyYAML
 tenacity
 fastapi
 uvicorn
+sse-starlette

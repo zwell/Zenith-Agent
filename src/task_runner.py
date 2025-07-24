@@ -1,11 +1,12 @@
 import asyncio
 import traceback
 import yaml
+import asyncio
 import logging.config
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError, Error as PlaywrightError
 from e2b import AsyncSandbox
 from tenacity import retry, stop_after_attempt, wait_exponential
-
+from typing import Optional, Callable
 from config import settings
 from src.agent_creator import create_agent
 
@@ -34,7 +35,11 @@ async def invoke_agent_with_retry(agent, task: str):
     result = await agent.ainvoke({"input": task})
     return result
 
-async def run_agent_task(task: str):
+async def run_agent_task(
+        task: str,
+        stream_callback: Optional[Callable] = None,
+        shutdown_event: Optional[asyncio.Event] = None
+    ) -> dict:
     """
     一个独立的、可调用的函数，用于执行完整的Agent任务。
     它会处理所有资源的创建和清理。
@@ -43,40 +48,72 @@ async def run_agent_task(task: str):
 
     logger.info(f"Starting agent task for: '{task}'")
 
-    async with async_playwright() as p, await AsyncSandbox.create(api_key=settings.E2B_API_KEY) as sandbox:
-        browser = None
+    try:
+        # 我们将把异步上下文管理器拆开，以便在中间插入检查
+        p = await async_playwright().__aenter__()
+        sandbox = await (await AsyncSandbox.create(api_key=settings.E2B_API_KEY)).__aenter__()
+        
+        # 检查退出信号
+        if shutdown_event and shutdown_event.is_set():
+            raise asyncio.CancelledError("Shutdown signal received before browser launch.")
+
+        browser = await p.chromium.launch(headless=settings.BROWSER_HEADLESS)
+
         try:
-            browser = await p.chromium.launch(headless=settings.BROWSER_HEADLESS)
-            
-            try:
-                # 创建Agent
-                agent = await create_agent(browser, sandbox)
+            agent = await create_agent(browser, sandbox, stream_callback)
 
-                result = await invoke_agent_with_retry(agent, task)
+            # 检查退出信号
+            if shutdown_event and shutdown_event.is_set():
+                raise asyncio.CancelledError("Shutdown signal received before agent execution.")
 
-                output = result.get('output', 'No output from agent.')
+            # 创建两个任务：agent执行和等待退出信号
+            agent_task = asyncio.create_task(
+                agent.ainvoke(
+                    {"input": task},
+                    config={"callbacks": agent.callbacks} if stream_callback else None
+                )
+            )
+            shutdown_task = asyncio.create_task(shutdown_event.wait()) if shutdown_event else None
 
-                logger.info(f"Agent task for '{task}' finished successfully.")
+            # 等待其中一个任务完成
+            done, pending = await asyncio.wait(
+                [task for task in [agent_task, shutdown_task] if task is not None],
+                return_when=asyncio.FIRST_COMPLETED
+            )
 
-                return {"status": "completed", "result": output}
-            
-            finally:
-                if browser and browser.is_connected():
-                    await browser.close()
+            if shutdown_task and shutdown_task in done:
+                agent_task.cancel() # 取消agent任务
+                raise asyncio.CancelledError("Shutdown signal received during agent execution.")
 
-        except PlaywrightTimeoutError:
-            error_message = "Browser operation timed out."
-            logger.error(error_message)
-            return {"status": "error", "message": error_message}
+            # 如果是agent任务完成了
+            result = await agent_task
+
+            output = result.get('output', 'No output from agent.')
+
+            logger.info(f"Agent task for '{task}' finished successfully.")
+
+            return {"status": "success", "result": output}
         
-        except PlaywrightError as e:
-            error_message = f"Browser or network error: {e}"
-            logger.error(error_message)
-            return {"status": "error", "message": error_message}
-        
-        except Exception as e:
-            error_message = f"An unexpected error occurred: {e}"
-            logger.exception(error_message)
-            return {"status": "error", "message": error_message}
+        finally:
+            # 确保所有资源都被清理
+            if browser and browser.is_connected():
+                await browser.close()
+            await sandbox.__aexit__(None, None, None)
+            await p.__aexit__(None, None, None)
+
+    except PlaywrightTimeoutError:
+        error_message = "Browser operation timed out."
+        logger.error(error_message)
+        return {"status": "error", "message": error_message}
+    
+    except PlaywrightError as e:
+        error_message = f"Browser or network error: {e}"
+        logger.error(error_message)
+        return {"status": "error", "message": error_message}
+    
+    except Exception as e:
+        error_message = f"An unexpected error occurred: {e}"
+        logger.exception(error_message)
+        return {"status": "error", "message": error_message}
         
         
