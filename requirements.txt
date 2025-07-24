@@ -8,3 +8,5 @@ langchain-tavily
 playwright
 e2b
 python-dotenv
+PyYAML
+tenacity
