@@ -48,59 +48,52 @@ async def run_agent_task(
 
     logger.info(f"Starting agent task for: '{task}'")
 
+    playwright_cm = async_playwright()
+    p = None
+    sandbox_cm = None
+    sandbox = None
+    browser = None
+
     try:
-        # 我们将把异步上下文管理器拆开，以便在中间插入检查
-        p = await async_playwright().__aenter__()
-        sandbox = await (await AsyncSandbox.create(api_key=settings.E2B_API_KEY)).__aenter__()
-        
-        # 检查退出信号
+        p = await playwright_cm.__aenter__()
+        sandbox_cm = await AsyncSandbox.create(api_key=settings.E2B_API_KEY)
+        sandbox = await sandbox_cm.__aenter__()
+
         if shutdown_event and shutdown_event.is_set():
             raise asyncio.CancelledError("Shutdown signal received before browser launch.")
 
         browser = await p.chromium.launch(headless=settings.BROWSER_HEADLESS)
 
-        try:
-            agent = await create_agent(browser, sandbox, stream_callback)
+        agent = await create_agent(browser, sandbox, stream_callback)
 
-            # 检查退出信号
-            if shutdown_event and shutdown_event.is_set():
-                raise asyncio.CancelledError("Shutdown signal received before agent execution.")
+        if shutdown_event and shutdown_event.is_set():
+            raise asyncio.CancelledError("Shutdown signal received before agent execution.")
 
-            # 创建两个任务：agent执行和等待退出信号
-            agent_task = asyncio.create_task(
-                agent.ainvoke(
-                    {"input": task},
-                    config={"callbacks": agent.callbacks} if stream_callback else None
-                )
+        agent_task = asyncio.create_task(
+            agent.ainvoke(
+                {"input": task},
+                config={"callbacks": agent.callbacks} if stream_callback else None
             )
-            shutdown_task = asyncio.create_task(shutdown_event.wait()) if shutdown_event else None
+        )
+        shutdown_task = asyncio.create_task(shutdown_event.wait()) if shutdown_event else None
 
-            # 等待其中一个任务完成
-            done, pending = await asyncio.wait(
-                [task for task in [agent_task, shutdown_task] if task is not None],
-                return_when=asyncio.FIRST_COMPLETED
-            )
+        done, pending = await asyncio.wait(
+            [t for t in [agent_task, shutdown_task] if t is not None],
+            return_when=asyncio.FIRST_COMPLETED
+        )
 
-            if shutdown_task and shutdown_task in done:
-                agent_task.cancel() # 取消agent任务
-                raise asyncio.CancelledError("Shutdown signal received during agent execution.")
+        if shutdown_task and shutdown_task in done:
+            agent_task.cancel()
+            raise asyncio.CancelledError("Shutdown signal received during agent execution.")
 
-            # 如果是agent任务完成了
-            result = await agent_task
+        result = await agent_task
+        output = result.get('output', 'No output from agent.')
+        logger.info(f"Agent task for '{task}' finished successfully.")
 
-            output = result.get('output', 'No output from agent.')
-
-            logger.info(f"Agent task for '{task}' finished successfully.")
-
-            return {"status": "success", "result": output}
+        if stream_callback:
+            await stream_callback("result", output)
+        return {"status": "completed", "result": output}
         
-        finally:
-            # 确保所有资源都被清理
-            if browser and browser.is_connected():
-                await browser.close()
-            await sandbox.__aexit__(None, None, None)
-            await p.__aexit__(None, None, None)
-
     except PlaywrightTimeoutError:
         error_message = "Browser operation timed out."
         logger.error(error_message)
@@ -111,9 +104,24 @@ async def run_agent_task(
         logger.error(error_message)
         return {"status": "error", "message": error_message}
     
+    except asyncio.CancelledError as e:
+        logger.warning(f"Task cancelled: {e}")
+        return {"status": "cancelled", "message": str(e)}
+    
     except Exception as e:
         error_message = f"An unexpected error occurred: {e}"
         logger.exception(error_message)
+        if stream_callback:
+            await stream_callback("error", error_message)
         return {"status": "error", "message": error_message}
+    
+    finally:
+        if browser and browser.is_connected():
+            await browser.close()
+        if sandbox_cm:
+            await sandbox_cm.__aexit__(None, None, None)
+        if playwright_cm:
+            await playwright_cm.__aexit__(None, None, None)
+        logger.info(f"Resources for task '{task}' have been cleaned up.")
         
         
