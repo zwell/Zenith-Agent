@@ -7,6 +7,12 @@ import json
 from fastapi import FastAPI, Request
 from sse_starlette import EventSourceResponse
 from typing import Any
+from langchain.globals import set_debug
+from config import settings
+
+# 调试模式
+if hasattr(settings, 'LANGCHAIN_DEBUG') and settings.LANGCHAIN_DEBUG:
+    set_debug(True)
 
 # 检查是否在Windows上，并设置正确的asyncio事件循环策略
 if sys.platform == "win32":

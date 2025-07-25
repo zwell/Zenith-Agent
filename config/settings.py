@@ -5,6 +5,8 @@ from dotenv import load_dotenv
 # 这会查找项目根目录下的 .env 文件
 load_dotenv()
 
+LANGCHAIN_DEBUG = os.getenv("LANGCHAIN_DEBUG")
+
 # --- API 密钥 ---
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
