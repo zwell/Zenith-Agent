@@ -13,3 +13,5 @@ tenacity
 fastapi
 uvicorn
 sse-starlette
+streamlit
+requests

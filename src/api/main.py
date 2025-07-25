@@ -6,6 +6,7 @@ import sys
 import json
 from fastapi import FastAPI, Request
 from sse_starlette import EventSourceResponse
+from typing import Any
 
 # 检查是否在Windows上，并设置正确的asyncio事件循环策略
 if sys.platform == "win32":
@@ -58,10 +59,6 @@ async def execute_task(request: TaskRequest, fastapi_req: Request):
     """
     mode = request.mode
     
-    # 兼容旧的 'async' 模式名，统一为 'sync' 行为
-    if mode == "async":
-        mode = "sync"
-        
     if mode == "sync":
         # 同步模式：直接调用、等待、返回结果
         logger.info(f"Executing task in 'sync' mode for: '{request.task}'")
@@ -69,27 +66,58 @@ async def execute_task(request: TaskRequest, fastapi_req: Request):
         result_data = await run_agent_task(request.task, shutdown_event=shutdown_event)
         return result_data
 
-    elif mode == "stream":
-        # 流式模式：逻辑和之前基本一样
+    elif request.mode == "stream":
         logger.info(f"Executing task in 'stream' mode for: '{request.task}'")
         
-        async def stream_generator():
-            async def send_event(event_name: str, data: Any):
-                if await fastapi_req.is_disconnected() or shutdown_event.is_set():
-                    logger.warning("Client disconnected or shutdown signal received, stopping stream.")
-                    # 抛出一个异常来中断生成器
-                    raise asyncio.CancelledError("Client disconnected or shutdown.")
-                
-                if not isinstance(data, str):
-                    data = json.dumps(data, ensure_ascii=False) # ensure_ascii=False 对中文友好
-                
-                yield {"event": event_name, "data": data}
+        # 使用 asyncio.Queue 作为中间的桥梁
+        # Agent 把事件放入队列，主循环从队列中取出并发送
+        event_queue = asyncio.Queue()
 
+        async def stream_generator():
             try:
-                # 传递 shutdown_event
-                await run_agent_task(request.task, stream_callback=send_event, shutdown_event=shutdown_event)
-                yield {"event": "end", "data": "Stream finished."}
+                while True:
+                    # 从队列中获取事件
+                    event = await event_queue.get()
+                    
+                    # 检查是否是结束信号
+                    if event is None:
+                        yield {"event": "end", "data": "Stream finished."}
+                        break
+                    
+                    event_name, data = event
+                    
+                    if await fastapi_req.is_disconnected():
+                        logger.warning("Client disconnected, stopping stream.")
+                        break
+
+                    if not isinstance(data, str):
+                        data = json.dumps(data, ensure_ascii=False)
+                    
+                    yield {"event": event_name, "data": data}
+                    
+                    # 标记任务完成，让 get() 不再阻塞
+                    event_queue.task_done()
+
             except asyncio.CancelledError:
-                yield {"event": "error", "data": "Task cancelled by server or client."}
+                logger.warning("Stream generator cancelled.")
+        
+        # 定义一个真正的协程回调函数，它只负责把事件放入队列
+        async def queue_callback(event_name: str, data: Any):
+            await event_queue.put((event_name, data))
+            
+        # 在后台启动Agent任务，它会通过回调函数向队列中填充事件
+        async def run_in_background():
+            try:
+                await run_agent_task(
+                    request.task, 
+                    stream_callback=queue_callback, 
+                    shutdown_event=shutdown_event
+                )
+            finally:
+                # 任务结束后，放入结束信号
+                await event_queue.put(None)
+
+        # 启动后台任务，但不等待它完成
+        asyncio.create_task(run_in_background())
 
         return EventSourceResponse(stream_generator())
