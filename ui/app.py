@@ -24,6 +24,8 @@ if st.button("🚀 执行任务", disabled=not task_input):
     # --- UI 准备 ---
     st.info("任务已开始，请稍候... 实时日志如下：")
     
+    plan_placeholder = st.empty()
+
     # 创建用于显示实时日志的占位符
     log_placeholder = st.empty()
     # 创建用于显示最终结果的占位符
@@ -58,11 +60,16 @@ if st.button("🚀 执行任务", disabled=not task_input):
                         # 在UI上更新日志
                         log_placeholder.markdown(f"```log\n{full_log}\n```")
 
-                        # 特殊事件处理
-                        if event_type == "langsmith_url":
+                        # 事件处理
+                        if event_type == "plan":
+                            # 使用 st.expander 创建一个可折叠的漂亮计划展示区
+                            with plan_placeholder.expander("📝 查看 Agent 的执行计划", expanded=True):
+                                st.markdown(data_str)
+
+                        elif  event_type == "langsmith_url":
                             st.info(f"🔍 [LangSmith Trace]({data_str}) (点击查看详细执行过程)")
                         
-                        if event_type == "result":
+                        elif  event_type == "result":
                             result_placeholder.success("✅ 任务完成！最终结果：")
                             try:
                                 # 优先尝试将结果作为JSON来解析和显示
@@ -72,8 +79,14 @@ if st.button("🚀 执行任务", disabled=not task_input):
                                 # 如果解析失败，说明它是一个普通字符串，直接用markdown显示
                                 result_placeholder.markdown(data_str)
 
-                        if event_type == "error":
+                        elif  event_type == "error":
                             result_placeholder.error(f"❌ 任务出错：{data_str}")
+
+                        # else: 
+                        #     # 其他所有事件 (如 log) 都进入滚动日志
+                        #     log_entry = f"[{time.strftime('%H:%M:%S')}] {data_str}\n"
+                        #     full_log += log_entry
+                        #     log_placeholder.text_area("实时日志", value=full_log, height=300)
 
     except requests.exceptions.RequestException as e:
         st.error(f"连接后端服务失败: {e}")
