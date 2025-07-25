@@ -15,7 +15,7 @@ st.caption("一个由 AI 驱动的网站自动化任务机器人")
 # --- 任务输入 ---
 task_input = st.text_input(
     "请输入你的任务：",
-    placeholder="例如：访问tavily.com搜索'大型语言模型'，然后总结前三个结果。",
+    placeholder="",
     help="详细描述你的任务，Agent会尝试理解并执行。"
 )
 
@@ -25,14 +25,13 @@ if st.button("🚀 执行任务", disabled=not task_input):
     st.info("任务已开始，请稍候... 实时日志如下：")
     
     plan_placeholder = st.empty()
-
-    # 创建用于显示实时日志的占位符
     log_placeholder = st.empty()
-    # 创建用于显示最终结果的占位符
     result_placeholder = st.empty()
-    
-    full_log = ""
-    
+        
+    st.session_state.log_entries = []
+    st.session_state.plan_displayed = []
+    st.session_state.result_displayed = ""
+
     try:
         # --- 调用后端 API ---
         # 使用流式模式
@@ -52,41 +51,40 @@ if st.button("🚀 执行任务", disabled=not task_input):
                         event_type = decoded_line.split(':', 1)[1].strip()
                     elif decoded_line.startswith('data:'):
                         data_str = decoded_line.split(':', 1)[1].strip()
-                        
-                        # 简单的日志追加逻辑
-                        log_entry = f"[{time.strftime('%H:%M:%S')}] {event_type.upper()}: {data_str}\n"
-                        full_log += log_entry
-                        
-                        # 在UI上更新日志
-                        log_placeholder.markdown(f"```log\n{full_log}\n```")
 
-                        # 事件处理
                         if event_type == "plan":
-                            # 使用 st.expander 创建一个可折叠的漂亮计划展示区
-                            with plan_placeholder.expander("📝 查看 Agent 的执行计划", expanded=True):
-                                st.markdown(data_str)
-
-                        elif  event_type == "langsmith_url":
+                            st.session_state.plan_displayed.append(data_str)
+                        elif event_type == "result" or event_type == "error":
+                            st.session_state.result_displayed = (event_type, data_str)
+                        elif event_type == "langsmith_url":
                             st.info(f"🔍 [LangSmith Trace]({data_str}) (点击查看详细执行过程)")
+                        else: # 普通日志
+                            log_entry = f"`{time.strftime('%H:%M:%S')}` {data_str}"
+                            st.session_state.log_entries.append(log_entry)
+
+                        # 渲染计划（如果存在）
+                        if st.session_state.plan_displayed:
+                            for entry in st.session_state.plan_displayed:
+                                st.text(entry)
                         
-                        elif  event_type == "result":
-                            result_placeholder.success("✅ 任务完成！最终结果：")
-                            try:
-                                # 优先尝试将结果作为JSON来解析和显示
-                                result_data = json.loads(data_str)
-                                result_placeholder.json(result_data)
-                            except json.JSONDecodeError:
-                                # 如果解析失败，说明它是一个普通字符串，直接用markdown显示
-                                result_placeholder.markdown(data_str)
+                        # 渲染所有累积的日志
+                        with log_placeholder:
+                            st.markdown("##### 实时日志")
+                            # 遍历并显示每一条日志
+                            for entry in st.session_state.log_entries:
+                                st.text(entry) # 使用 st.text 保证格式统一，不会被误认为是Markdown
 
-                        elif  event_type == "error":
-                            result_placeholder.error(f"❌ 任务出错：{data_str}")
-
-                        # else: 
-                        #     # 其他所有事件 (如 log) 都进入滚动日志
-                        #     log_entry = f"[{time.strftime('%H:%M:%S')}] {data_str}\n"
-                        #     full_log += log_entry
-                        #     log_placeholder.text_area("实时日志", value=full_log, height=300)
+                        # 渲染最终结果（如果存在）
+                        if st.session_state.result_displayed:
+                            res_type, res_data = st.session_state.result_displayed
+                            if res_type == "result":
+                                result_placeholder.success("✅ 任务完成！最终结果：")
+                                try: # 尝试以JSON或Markdown显示
+                                    result_placeholder.json(res_data)
+                                except:
+                                    result_placeholder.markdown(res_data)
+                            else:
+                                result_placeholder.error(f"❌ 任务出错：{res_data}")
 
     except requests.exceptions.RequestException as e:
         st.error(f"连接后端服务失败: {e}")

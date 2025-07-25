@@ -16,6 +16,7 @@ from src.llm_factory import get_llm
 class StreamingCallbackHandler(BaseCallbackHandler):
     """一个处理流式输出的回调处理器"""
     def __init__(self, send_event: Callable):
+        print("__init__")
         self.send_event = send_event
         self.planner_run_id: Optional[UUID] = None
 
@@ -45,14 +46,7 @@ class StreamingCallbackHandler(BaseCallbackHandler):
     async def on_chain_start(
         self, serialized: Dict[str, Any], inputs: Dict[str, Any], *, run_id: UUID, parent_run_id: Optional[UUID] = None, **kwargs: Any
     ) -> None:
-        print(parent_run_id, run_id)
-        print("on_chain_start", inputs)
-        # --- 关键逻辑：识别 Planner Chain ---
-        # PlanAndExecute Agent内部的Planner Chain通常有一个特定的名称或结构
-        # 我们可以通过 `serialized.get('name')` 或其他特征来识别它
-        # 一个简单的（但不完全可靠的）方法是假设第一个非最外层的链是Planner
-        # 更可靠的方法是检查 'id' 或 'name' 字段
-        # 例如，load_chat_planner 创建的链的id可能包含 "LLMChain"
+        print("on_chain_start", self.planner_run_id, serialized, inputs, parent_run_id, run_id, kwargs)
         if self.planner_run_id is None and parent_run_id is not None:
              # 假设第一个子链是 planner
              self.planner_run_id = run_id
@@ -61,7 +55,7 @@ class StreamingCallbackHandler(BaseCallbackHandler):
     async def on_chain_end(
         self, outputs: Dict[str, Any], *, run_id: UUID, **kwargs: Any
     ) -> Any:
-        print("on_chain_end", outputs, run_id)
+        print("on_chain_end", outputs, run_id, kwargs)
         """在链结束时触发"""
         # --- 关键逻辑：检查是否是 Planner Chain 结束 ---
         if run_id == self.planner_run_id:
