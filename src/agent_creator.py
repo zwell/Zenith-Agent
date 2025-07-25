@@ -10,6 +10,7 @@ from langchain_core.outputs import LLMResult, ChatGeneration
 from config import settings
 from src.tools.custom_tools import get_current_date, input_tool
 from src.tools.sanbox import SandboxToolManager
+from src.llm_factory import get_llm
 
 class StreamingCallbackHandler(BaseCallbackHandler):
     """一个处理流式输出的回调处理器"""
@@ -55,20 +56,18 @@ async def create_agent(browser, sandbox, stream_callback: Optional[Callable] = N
     callbacks = [StreamingCallbackHandler(stream_callback)] if stream_callback else []
 
     # 规划器
-    plan_llm = ChatGoogleGenerativeAI(
-        model=settings.PLANNER_LLM_MODEL, 
-        temperature=settings.PLANNER_LLM_TEMPERATURE,
-        google_api_key=settings.GOOGLE_API_KEY,
-        callbacks=callbacks,
+    plan_llm = get_llm(
+        provider=settings.PLANNER_LLM_PROVIDER,
+        model_name=settings.PLANNER_LLM_MODEL,
+        temperature=settings.PLANNER_LLM_TEMPERATURE
     )
     planner = load_chat_planner(plan_llm, system_prompt=settings.PLANNER_PROMPT)
 
     # 执行器
-    executor_llm = ChatTongyi(
+    executor_llm = get_llm(
+        provider=settings.EXECUTOR_LLM_PROVIDER,
         model_name=settings.EXECUTOR_LLM_MODEL,
-        temperature=settings.EXECUTOR_LLM_TEMPERATURE,
-        dashscope_api_key=settings.DASHSCOPE_API_KEY,
-        callbacks=callbacks,
+        temperature=settings.EXECUTOR_LLM_TEMPERATURE
     )
 
     # 工具集

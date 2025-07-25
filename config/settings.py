@@ -10,15 +10,25 @@ LANGCHAIN_DEBUG = os.getenv("LANGCHAIN_DEBUG")
 # --- API 密钥 ---
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-DASHSCOPE_API_KEY = os.getenv("DASHSCOPE_API_KEY") # Qwen/Tongyi 使用的是这个
+DASHSCOPE_API_KEY = os.getenv("DASHSCOPE_API_KEY")
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
 E2B_API_KEY = os.getenv("E2B_API_KEY")
 
 # --- LLM 配置 ---
-PLANNER_LLM_MODEL = "gemini-2.5-flash"
+# 从环境变量读取提供商和模型名称
+ROUTER_LLM_PROVIDER = os.getenv("ROUTER_LLM_PROVIDER", "tongyi").lower()
+PLANNER_LLM_PROVIDER = os.getenv("PLANNER_LLM_PROVIDER", "tongyi").lower()
+EXECUTOR_LLM_PROVIDER = os.getenv("EXECUTOR_LLM_PROVIDER", "tongyi").lower()
+
+ROUTER_LLM_MODEL = os.getenv("ROUTER_LLM_MODEL", "qwen-turbo")
+PLANNER_LLM_MODEL = os.getenv("PLANNER_LLM_MODEL", "qwen-max")
+EXECUTOR_LLM_MODEL = os.getenv("EXECUTOR_LLM_MODEL", "qwen-turbo")
+
+# --- LLM 参数 ---
 PLANNER_LLM_TEMPERATURE = 0.0
-EXECUTOR_LLM_MODEL = "qwen-turbo" # langchain-community中qwen-turbo-latest可能会有变化，用qwen-turbo更稳定
 EXECUTOR_LLM_TEMPERATURE = 0.0
+ROUTER_LLM_TEMPERATURE = 0.0
+DIRECT_ANSWER_LLM_TEMPERATURE = 0.7 # 直接回答时可以更有创意一点
 
 # --- Browser 配置 ---
 # True 为无头模式（后台运行），False 为有头模式（会弹出浏览器窗口）

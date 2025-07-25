@@ -3,13 +3,12 @@ from langchain_community.chat_models import ChatTongyi
 from langchain_core.output_parsers import StrOutputParser
 
 from config import settings
+from src.llm_factory import get_llm
 
-# --- 创建路由 LLM ---
-# 仍然使用一个快速、便宜的模型
-llm = ChatTongyi(
-    model_name="qwen-turbo",
-    temperature=0, # 对于分类任务，温度设为0最稳定
-    dashscope_api_key=settings.DASHSCOPE_API_KEY
+llm = get_llm(
+    provider=settings.ROUTER_LLM_PROVIDER,
+    model_name=settings.ROUTER_LLM_MODEL,
+    temperature=settings.ROUTER_LLM_TEMPERATURE
 )
 
 # --- 创建新的、更简单的路由提示 ---

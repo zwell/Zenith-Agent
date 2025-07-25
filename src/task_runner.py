@@ -13,7 +13,7 @@ from typing import Optional, Callable
 from config import settings
 from src.agent_creator import create_agent
 from src.router import router_chain 
-
+from src.llm_factory import get_llm
 
 # 日志
 try:
@@ -79,10 +79,10 @@ async def run_agent_task(
                 await stream_callback("log", f"路由分析出错: {e}。将采用默认的简单模式处理。")
   
         if route == "direct_answer": # 直接回复的任务
-            direct_answer_llm = ChatTongyi(
+            direct_answer_llm = get_llm(
+                provider=settings.EXECUTOR_LLM_PROVIDER, 
                 model_name=settings.EXECUTOR_LLM_MODEL,
-                temperature=0.7, # 可以稍微有点创意
-                dashscope_api_key=settings.DASHSCOPE_API_KEY
+                temperature=settings.DIRECT_ANSWER_LLM_TEMPERATURE # 使用单独的温度配置
             )
             direct_answer_prompt = ChatPromptTemplate.from_messages(
                 [
