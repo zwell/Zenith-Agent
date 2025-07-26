@@ -19,6 +19,8 @@ class StreamingCallbackHandler(BaseCallbackHandler):
         print("__init__")
         self.send_event = send_event
         self.planner_run_id: Optional[UUID] = None
+        self.planner_identified = False
+        self.is_planner_finished = False
 
     async def on_chat_model_start(
         self, serialized: Dict[str, Any], messages: List[List[Any]], **kwargs: Any
@@ -47,10 +49,15 @@ class StreamingCallbackHandler(BaseCallbackHandler):
         self, serialized: Dict[str, Any], inputs: Dict[str, Any], *, run_id: UUID, parent_run_id: Optional[UUID] = None, **kwargs: Any
     ) -> None:
         print("on_chain_start", self.planner_run_id, serialized, inputs, parent_run_id, run_id, kwargs)
-        if self.planner_run_id is None and parent_run_id is not None:
+        if parent_run_id and not self.planner_identified:
              # 假设第一个子链是 planner
              self.planner_run_id = run_id
+             self.planner_identified = True 
              await self.send_event("log", "📝 规划器已启动，正在制定计划...")
+
+        elif parent_run_id and self.is_planner_finished:
+            # await self.send_event("log", "🚀 **执行阶段**: 执行器已启动...")
+            pass
 
     async def on_chain_end(
         self, outputs: Dict[str, Any], *, run_id: UUID, **kwargs: Any
@@ -58,11 +65,13 @@ class StreamingCallbackHandler(BaseCallbackHandler):
         print("on_chain_end", outputs, run_id, kwargs)
         """在链结束时触发"""
         # --- 关键逻辑：检查是否是 Planner Chain 结束 ---
-        if run_id == self.planner_run_id:
-            # 如果是 Planner Chain 结束，就提取计划并发送
+        if run_id == self.planner_run_id and not self.is_planner_finished:
+            await self.send_event("log", "✅ **规划阶段**: 计划已生成。")
             plan_text = outputs.get('text', '无法提取计划文本。')
             await self.send_event("plan", plan_text)
-            self.planner_run_id = None # 重置 run_id，以备将来使用
+            
+            # 更新状态：标记Planner已结束
+            self.is_planner_finished = True
 
 async def create_agent(browser, sandbox, stream_callback: Optional[Callable] = None):
     """

@@ -15,17 +15,16 @@ st.caption("一个由 AI 驱动的网站自动化任务机器人")
 task_input = st.text_input("请输入你的任务：", placeholder="例如：特斯拉最新的股价是多少？")
 
 # --- 运行按钮 ---
-if st.button("🚀 执行任务", disabled=not task_input):
-    st.info("任务已开始，请稍候...")
-    
+if st.button("🚀 执行任务", disabled=not task_input):    
     # 定义UI占位符
     plan_placeholder = st.empty()
-    log_placeholder = st.empty()
     result_placeholder = st.empty()
+    log_placeholder = st.empty()
     
     # 存储日志和最终结果
+    plan = ""
     log_content = ""
-    result_data = None
+    result_data = ""
     event_type = "log"
 
     try:
@@ -55,35 +54,27 @@ if st.button("🚀 执行任务", disabled=not task_input):
                         # 我们将其作为字符串处理，并打印警告
                         print(f"Warning: Received non-JSON data from stream: {data_str}")
                         data = data_str
+                    print(data)
 
                     # 2. 根据事件类型更新对应的UI部分
                     if event_type == "plan":
-                        with plan_placeholder.expander("📝 Agent 执行计划", expanded=True):
-                            st.markdown(data)
+                        print("plan", plan)
+                        plan += f"{data}\n"
+                        plan_placeholder.text_area("执行计划", value=plan)
                     elif event_type == "result":
-                        result_data = ("result", data)
-                    elif event_type == "error":
-                        result_data = ("error", data)
-                    elif event_type == "langsmith_url":
-                        st.info(f"🔍 [LangSmith Trace]({data})")
+                        result_data += f"{data}\n"
+                        print("result", result_data)
+                        result_placeholder.text_area("结果", value=result_data)
+                    # elif event_type == "error":
+                    #     result_data = ("error", data)
+                    # elif event_type == "langsmith_url":
+                    #     st.info(f"🔍 [LangSmith Trace]({data})")
                     elif event_type == "end":
                         st.info(f"任务完成{data}")
                     else: # log
                         log_content += f"`{time.strftime('%H:%M:%S')}` {data}\n"
-                        log_placeholder.text_area("实时日志", value=log_content, height=300)
+                        log_placeholder.text_area("实时日志", value=log_content, height=400)
 
     except Exception as e:
-        result_data = ("error", str(e))
-    
-    # 循环结束后，显示最终结果
-    if result_data:
-        res_type, res_data_val = result_data
-        if res_type == "result":
-            result_placeholder.success("✅ 任务完成！最终结果：")
-            # 最终结果可能是JSON或文本，我们再次健壮处理
-            if isinstance(res_data_val, (dict, list)):
-                 result_placeholder.json(res_data_val)
-            else:
-                 result_placeholder.markdown(res_data_val)
-        else: # error
-            result_placeholder.error(f"❌ 任务出错：{res_data_val}")
+        # result_data = ("error", str(e))
+        pass
